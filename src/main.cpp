@@ -2,6 +2,7 @@
 #include "queue/job_queue.hpp"
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -37,15 +38,30 @@ void worker_thread(JobQueue& queue, int worker_id) {
         bool leased = queue.lease(now, LEASE_DURATION, job);
 
         if (leased) {
+            // 20% chance the job errors out
+            bool failed = (std::rand() % 5 == 0);
+
             std::cout << "Worker " << worker_id << " leased " << job.id
                       << " (epoch: " << job.lease_epoch << ")\n";
 
             // sleep for 100ms to simulate doing work
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-            bool acked = queue.ack(job.id, job.lease_epoch);
-            std::cout << "Worker " << worker_id << " ACK for " << job.id << ": "
-                      << (acked ? "ACCEPTED" : "REJECTED (fenced out)") << "\n";
+            if (failed) {
+                bool nacked =
+                    queue.nack(job.id, job.lease_epoch, MAX_JOB_ATTEMPTS);
+                std::cout << "Worker " << worker_id << " NACK for " << job.id
+                          << ": "
+                          << (nacked ? "REQUEUED/FAILED"
+                                     : "REJECTED (fenced out)")
+                          << "\n";
+            } else {
+                bool acked = queue.ack(job.id, job.lease_epoch);
+                std::cout << "Worker " << worker_id << " ACK for " << job.id
+                          << ": "
+                          << (acked ? "ACCEPTED" : "REJECTED (fenced out)")
+                          << "\n";
+            }
         } else {
             // queue is currently empty, back off for 50ms before checking again
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
