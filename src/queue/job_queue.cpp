@@ -1,6 +1,39 @@
 #include "queue/job_queue.hpp"
 #include "queue/job.hpp"
 
+/*
+ * JOB QUEUE STATE & CONCURRENCY INVARIANTS
+ * ----------------------------------------
+ * All methods acquire `mtx` to serialize state transitions and prevent data
+ * races.
+ *
+ * 1. Normal Lifecycle:
+ *    enqueue() -> PENDING (epoch = 0, attempts = 0)
+ *    lease()   -> LEASED  (epoch++, attempts++, expires_at = now + duration)
+ *    ack()     -> COMPLETED (if state == LEASED && epoch matches)
+ *    nack()    -> PENDING or DEAD (if state == LEASED && epoch matches, based
+ * on max_attempts)
+ *
+ * 2. Zombie / Stale Worker Fencing:
+ *    - If a worker stalls past `lease_expires_at`, `check_expired()` sweeps the
+ * job:
+ *        * attempts < max_attempts  -> resets to PENDING (ready for re-lease
+ * with epoch + 1)
+ *        * attempts >= max_attempts -> transitions to DEAD (terminal failure)
+ *    - When the stalled (zombie) worker eventually wakes up and calls ack() or
+ * nack(), either `state != LEASED` (still PENDING/DEAD) or `epoch` no longer
+ * matches (re-leased). Both cases return `false`, fencing out the stale worker.
+ *
+ * 3. Benign Expiration Race (Expired in clock time, before check_expired()
+ * ticks):
+ *    - `lease()` ONLY picks PENDING jobs, so a job in LEASED limbo is never
+ * handed to two workers.
+ *    - If a slow worker calls ack()/nack() BEFORE `check_expired()` runs, it
+ * still holds the valid epoch and succeeds (`true`) with zero duplicate work.
+ *    - If `check_expired()` grabs `mtx` first, it revokes the lease (PENDING or
+ * DEAD) and the late worker's ack()/nack() gets rejected (`false`).
+ */
+
 void JobQueue::enqueue(const std::string& id) {
     std::lock_guard<std::mutex> lock(mtx);
 
