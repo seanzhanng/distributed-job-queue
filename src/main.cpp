@@ -29,7 +29,7 @@ void timer_thread(JobQueue& queue) {
     }
 }
 
-void worker_thread(JobQueue& queue) {
+void worker_thread(JobQueue& queue, int worker_id) {
     while (running) {
         Job job;
         long long now = now_ms();
@@ -37,9 +37,15 @@ void worker_thread(JobQueue& queue) {
         bool leased = queue.lease(now, LEASE_DURATION, job);
 
         if (leased) {
+            std::cout << "Worker " << worker_id << " leased " << job.id
+                      << " (epoch: " << job.lease_epoch << ")\n";
+
             // sleep for 100ms to simulate doing work
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            queue.ack(job.id, job.lease_epoch);
+
+            bool acked = queue.ack(job.id, job.lease_epoch);
+            std::cout << "Worker " << worker_id << " ACK for " << job.id << ": "
+                      << (acked ? "ACCEPTED" : "REJECTED (fenced out)") << "\n";
         } else {
             // queue is currently empty, back off for 50ms before checking again
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -63,7 +69,7 @@ int main() {
     // worker thread pool
     std::vector<std::thread> workers;
     for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
-        workers.push_back(std::thread(worker_thread, std::ref(queue)));
+        workers.push_back(std::thread(worker_thread, std::ref(queue), i));
     }
 
     // pauses the main thread so worker threads have time to process jobs
