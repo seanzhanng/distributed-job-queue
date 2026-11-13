@@ -38,14 +38,18 @@ void worker_thread(JobQueue& queue, int worker_id) {
         bool leased = queue.lease(now, LEASE_DURATION, job);
 
         if (leased) {
+            // randomize each jobs working time
+            int work_ms = 500 + std::rand() % 2000;
+
             // 20% chance the job errors out
             bool failed = (std::rand() % 5 == 0);
 
             std::cout << "Worker " << worker_id << " leased " << job.id
-                      << " (epoch: " << job.lease_epoch << ")\n";
+                      << " (epoch: " << job.lease_epoch << ", working for "
+                      << work_ms << "ms)\n";
 
-            // sleep for 100ms to simulate doing work
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            // sleep to simulate doing work
+            std::this_thread::sleep_for(std::chrono::milliseconds(work_ms));
 
             if (failed) {
                 bool nacked =
