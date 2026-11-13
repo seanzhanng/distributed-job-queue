@@ -4,10 +4,13 @@
 #include <chrono>
 #include <iostream>
 #include <thread>
+#include <vector>
 
 // atomic bool instead of regular bool so optimizer doesn't optimize this
 std::atomic<bool> running{true};
 const int MAX_JOB_ATTEMPTS = 3;
+const int LEASE_DURATION = 2000;
+const int WORKER_THREAD_COUNT = 50;
 
 int64_t now_ms() {
     using namespace std::chrono;
@@ -26,11 +29,29 @@ void timer_thread(JobQueue& queue) {
     }
 }
 
+void worker_thread(JobQueue& queue) {
+    while (running) {
+        Job job;
+        long long now = now_ms();
+
+        bool leased = queue.lease(now, LEASE_DURATION, job);
+
+        if (leased) {
+            // sleep for 100ms to simulate doing work
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            queue.ack(job.id, job.lease_epoch);
+        } else {
+            // queue is currently empty, back off for 50ms before checking again
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    }
+}
+
 int main() {
     JobQueue queue;
 
     // place jobs into the queue
-    for (int i = 0; i < 10000; i++) {
+    for (int i = 0; i < 1000; i++) {
         queue.enqueue("job-" + std::to_string(i));
     }
 
@@ -39,9 +60,21 @@ int main() {
     // background timer thread
     std::thread timer(timer_thread, std::ref(queue));
 
+    // worker thread pool
+    std::vector<std::thread> workers;
+    for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
+        workers.push_back(std::thread(worker_thread, std::ref(queue)));
+    }
+
+    // pauses the main thread so worker threads have time to process jobs
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+
     // cleanup
     running = false;
     timer.join();
+    for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
+        workers[i].join();
+    }
 
     std::cout << "cleanup successful!\n";
     return 0;
