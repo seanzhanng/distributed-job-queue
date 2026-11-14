@@ -1,6 +1,7 @@
 #pragma once
 
 #include "raft/raft_types.hpp"
+#include <functional>
 #include <mutex>
 #include <vector>
 
@@ -18,6 +19,12 @@ class RaftNode {
 
     RaftState state; // current role: FOLLOWER, CANDIDATE, or LEADER
 
+    // outbound rpc callbacks
+    std::function<RequestVoteResponse(int, const RequestVoteRequest&)>
+        send_request_vote;
+    std::function<AppendEntriesResponse(int, const AppendEntriesRequest&)>
+        send_append_entries;
+
     // role transitions and outbound rpc triggers
     void become_follower(int new_term);
     void start_election();
@@ -25,7 +32,11 @@ class RaftNode {
 
   public:
     // constructor
-    RaftNode(int id, const std::vector<int>& peer_ids);
+    RaftNode(int id, const std::vector<int>& peer_ids,
+             std::function<RequestVoteResponse(
+                 int, const RequestVoteRequest&)> const& send_request_vote,
+             std::function<AppendEntriesResponse(
+                 int, const AppendEntriesRequest&)> const& send_append_entries);
 
     // incoming rpc handlers
     RequestVoteResponse handle_request_vote(const RequestVoteRequest& req);

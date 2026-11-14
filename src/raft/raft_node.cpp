@@ -1,13 +1,20 @@
 #include "raft/raft_node.hpp"
 #include "raft/raft_types.hpp"
+#include <functional>
 #include <mutex>
 #include <vector>
 
 namespace raft {
 
-RaftNode::RaftNode(int id, const std::vector<int>& peer_ids)
+RaftNode::RaftNode(
+    int id, const std::vector<int>& peer_ids,
+    std::function<RequestVoteResponse(int, const RequestVoteRequest&)> const&
+        send_request_vote,
+    std::function<AppendEntriesResponse(
+        int, const AppendEntriesRequest&)> const& send_append_entries)
     : id(id), peer_ids(peer_ids), current_term(0), voted_for(-1),
-      state(RaftState::FOLLOWER) {}
+      state(RaftState::FOLLOWER), send_request_vote(send_request_vote),
+      send_append_entries(send_append_entries) {}
 
 void RaftNode::become_follower(int new_term) {
     state = RaftState::FOLLOWER;
