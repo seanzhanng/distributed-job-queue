@@ -1,0 +1,101 @@
+#include "raft/raft_node.hpp"
+#include "raft/raft_types.hpp"
+#include <mutex>
+#include <vector>
+
+namespace raft {
+
+RaftNode::RaftNode(int id, const std::vector<int>& peer_ids)
+    : id(id), peer_ids(peer_ids), current_term(0), voted_for(-1),
+      state(RaftState::FOLLOWER) {}
+
+void RaftNode::become_follower(int new_term) {
+    state = RaftState::FOLLOWER;
+    current_term = new_term;
+    voted_for = -1;
+}
+
+void RaftNode::start_election() {}
+
+void RaftNode::send_heartbeats() {}
+
+RequestVoteResponse
+RaftNode::handle_request_vote(const RequestVoteRequest& req) {
+    std::lock_guard<std::mutex> lock(mtx);
+
+    // if the candidate's term is greater than this node's current term, convert
+    // to follower
+    if (req.term > current_term) {
+        become_follower(req.term);
+    }
+
+    // instantiate the response RequestVoteResponse
+    RequestVoteResponse resp;
+    resp.term = current_term;
+    resp.vote_granted = false;
+
+    // if the candidate's term is too small, it's definitely behind so
+    // auto-reject
+    if (req.term < current_term) {
+        return resp;
+    }
+
+    // compute the current node's last log index and last log term to compare
+    // with the candidate's log freshness
+    int last_log_index = static_cast<int>(log.size());
+    int last_log_term = log.empty() ? 0 : log.back().term;
+
+    // check that the candidates last logged term is higher (means it's more up
+    // to date). if their terms are the same then make sure its last log index
+    // is as up to date as the current node's last log index
+    if ((req.last_log_term > last_log_term) ||
+        (req.last_log_term == last_log_term &&
+         req.last_log_index >= last_log_index)) {
+
+        // ensure the current node hasn't voted yet or in the rare edge case,
+        // the candidate had a network disruptance and asked for a vote again
+        if (voted_for == -1 || voted_for == req.candidate_id) {
+            // set current node's vote to the candidate and the
+            // RequestVoteResponse's vote_granted to true
+            voted_for = req.candidate_id;
+            resp.vote_granted = true;
+        }
+    }
+
+    return resp;
+}
+
+AppendEntriesResponse
+RaftNode::handle_append_entries(const AppendEntriesRequest& req) {
+    std::lock_guard<std::mutex> lock(mtx);
+
+    // if the leader's term is greater than this node's current term, convert
+    // to follower
+    if (req.term > current_term) {
+        become_follower(req.term);
+    }
+
+    // instantiate the response AppendEntriesResponse
+    AppendEntriesResponse resp;
+    resp.term = current_term;
+    resp.success = false;
+
+    // if the leader's term is too small, it's definitely behind so
+    // auto-reject
+    if (req.term < current_term) {
+        return resp;
+    }
+
+    // if this node is a candidate, step down to follower to respect the
+    // leader's authority in the current term
+    if (state == RaftState::CANDIDATE) {
+        state = RaftState::FOLLOWER;
+    }
+
+    // accept the append request and mark it successful
+    resp.success = true;
+
+    return resp;
+}
+
+} // namespace raft
