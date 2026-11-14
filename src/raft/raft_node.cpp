@@ -1,8 +1,8 @@
 #include "raft/raft_node.hpp"
 #include "raft/raft_types.hpp"
-#include <cstdlib>
 #include <functional>
 #include <mutex>
+#include <random>
 #include <vector>
 
 namespace raft {
@@ -31,8 +31,12 @@ void RaftNode::start_election() {}
 void RaftNode::send_heartbeats() {}
 
 void RaftNode::reset_election_timer() {
+    thread_local std::mt19937 generator{std::random_device{}()};
+    std::uniform_int_distribution<int> election_timeout_ms(150, 300);
+
     election_reset_event = std::chrono::steady_clock::now();
-    election_timeout = std::chrono::milliseconds(150 + (std::rand() % 151));
+    election_timeout =
+        std::chrono::milliseconds(election_timeout_ms(generator));
 }
 
 RequestVoteResponse

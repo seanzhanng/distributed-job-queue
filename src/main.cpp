@@ -2,8 +2,8 @@
 #include "queue/job_queue.hpp"
 #include <atomic>
 #include <chrono>
-#include <cstdlib>
 #include <iostream>
+#include <random>
 #include <thread>
 #include <vector>
 
@@ -31,6 +31,10 @@ void timer_thread(queue::JobQueue& queue) {
 }
 
 void worker_thread(queue::JobQueue& queue, int worker_id) {
+    thread_local std::mt19937 generator{std::random_device{}()};
+    std::uniform_int_distribution<int> work_duration(500, 2499);
+    std::bernoulli_distribution failure_chance(0.2);
+
     while (running) {
         queue::Job job;
         long long now = now_ms();
@@ -39,10 +43,10 @@ void worker_thread(queue::JobQueue& queue, int worker_id) {
 
         if (leased) {
             // randomize each jobs working time
-            int work_ms = 500 + std::rand() % 2000;
+            int work_ms = work_duration(generator);
 
             // 20% chance the job errors out
-            bool failed = (std::rand() % 5 == 0);
+            bool failed = failure_chance(generator);
 
             std::cout << "Worker " << worker_id << " leased " << job.id
                       << " (epoch: " << job.lease_epoch << ", working for "
