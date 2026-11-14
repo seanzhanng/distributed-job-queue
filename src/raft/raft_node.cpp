@@ -1,5 +1,6 @@
 #include "raft/raft_node.hpp"
 #include "raft/raft_types.hpp"
+#include <cstdlib>
 #include <functional>
 #include <mutex>
 #include <vector>
@@ -14,17 +15,25 @@ RaftNode::RaftNode(
         int, const AppendEntriesRequest&)> const& send_append_entries)
     : id(id), peer_ids(peer_ids), current_term(0), voted_for(-1),
       state(RaftState::FOLLOWER), send_request_vote(send_request_vote),
-      send_append_entries(send_append_entries) {}
+      send_append_entries(send_append_entries) {
+    reset_election_timer();
+}
 
 void RaftNode::become_follower(int new_term) {
     state = RaftState::FOLLOWER;
     current_term = new_term;
     voted_for = -1;
+    reset_election_timer();
 }
 
 void RaftNode::start_election() {}
 
 void RaftNode::send_heartbeats() {}
+
+void RaftNode::reset_election_timer() {
+    election_reset_event = std::chrono::steady_clock::now();
+    election_timeout = std::chrono::milliseconds(150 + (std::rand() % 151));
+}
 
 RequestVoteResponse
 RaftNode::handle_request_vote(const RequestVoteRequest& req) {
@@ -66,6 +75,7 @@ RaftNode::handle_request_vote(const RequestVoteRequest& req) {
             // RequestVoteResponse's vote_granted to true
             voted_for = req.candidate_id;
             resp.vote_granted = true;
+            reset_election_timer();
         }
     }
 
@@ -98,6 +108,8 @@ RaftNode::handle_append_entries(const AppendEntriesRequest& req) {
     if (state == RaftState::CANDIDATE) {
         state = RaftState::FOLLOWER;
     }
+
+    reset_election_timer();
 
     // accept the append request and mark it successful
     resp.success = true;

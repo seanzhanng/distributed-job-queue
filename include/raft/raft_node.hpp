@@ -1,6 +1,7 @@
 #pragma once
 
 #include "raft/raft_types.hpp"
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <vector>
@@ -19,6 +20,9 @@ class RaftNode {
 
     RaftState state; // current role: FOLLOWER, CANDIDATE, or LEADER
 
+    std::chrono::steady_clock::time_point election_reset_event;
+    std::chrono::milliseconds election_timeout;
+
     // outbound rpc callbacks
     std::function<RequestVoteResponse(int, const RequestVoteRequest&)>
         send_request_vote;
@@ -29,6 +33,8 @@ class RaftNode {
     void become_follower(int new_term);
     void start_election();
     void send_heartbeats();
+
+    void reset_election_timer();
 
   public:
     // constructor
