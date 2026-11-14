@@ -34,6 +34,8 @@
  * DEAD) and the late worker's ack()/nack() gets rejected (`false`).
  */
 
+namespace queue {
+
 void JobQueue::enqueue(const std::string& id) {
     std::lock_guard<std::mutex> lock(mtx);
 
@@ -110,3 +112,5 @@ void JobQueue::check_expired(long long now, int max_attempts) {
         }
     }
 }
+
+} // namespace queue

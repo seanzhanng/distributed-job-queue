@@ -20,7 +20,7 @@ int64_t now_ms() {
 }
 
 // keeps track of the time and also does the periodic check_expired sweep
-void timer_thread(JobQueue& queue) {
+void timer_thread(queue::JobQueue& queue) {
     while (running) {
         long long now = now_ms();
 
@@ -30,9 +30,9 @@ void timer_thread(JobQueue& queue) {
     }
 }
 
-void worker_thread(JobQueue& queue, int worker_id) {
+void worker_thread(queue::JobQueue& queue, int worker_id) {
     while (running) {
-        Job job;
+        queue::Job job;
         long long now = now_ms();
 
         bool leased = queue.lease(now, LEASE_DURATION, job);
@@ -74,7 +74,7 @@ void worker_thread(JobQueue& queue, int worker_id) {
 }
 
 int main() {
-    JobQueue queue;
+    queue::JobQueue queue;
 
     // place jobs into the queue
     for (int i = 0; i < 1000; i++) {

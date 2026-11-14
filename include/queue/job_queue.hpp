@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+namespace queue {
+
 class JobQueue {
   private:
     std::vector<Job> job_queue;
@@ -30,3 +32,5 @@ class JobQueue {
     // if max_attemps is reached then it dies instead
     void check_expired(long long now, int max_attempts);
 };
+
+} // namespace queue
