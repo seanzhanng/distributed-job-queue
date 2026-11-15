@@ -15,7 +15,7 @@ RaftNode::RaftNode(
         int, const AppendEntriesRequest&)> const& send_append_entries)
     : id(id), peer_ids(peer_ids), current_term(0), voted_for(-1),
       state(RaftState::FOLLOWER), send_request_vote(send_request_vote),
-      send_append_entries(send_append_entries) {
+      send_append_entries(send_append_entries), running(false) {
     reset_election_timer();
 }
 
@@ -37,6 +37,35 @@ void RaftNode::reset_election_timer() {
     election_reset_event = std::chrono::steady_clock::now();
     election_timeout =
         std::chrono::milliseconds(election_timeout_ms(generator));
+}
+
+void RaftNode::run_election_timer() {
+    while (running) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::lock_guard<std::mutex> lock(mtx);
+        if (state != RaftState::LEADER &&
+            (std::chrono::steady_clock::now() - election_reset_event) >=
+                election_timeout) {
+            start_election();
+        }
+    }
+}
+
+void RaftNode::start() {
+    std::lock_guard<std::mutex> lock(mtx);
+
+    reset_election_timer();
+    running = true;
+
+    timer_thread = std::thread(&RaftNode::run_election_timer, this);
+}
+
+void RaftNode::stop() {
+    running = false;
+
+    if (timer_thread.joinable()) {
+        timer_thread.join();
+    }
 }
 
 RequestVoteResponse

@@ -1,9 +1,11 @@
 #pragma once
 
 #include "raft/raft_types.hpp"
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 namespace raft {
@@ -22,6 +24,8 @@ class RaftNode {
 
     std::chrono::steady_clock::time_point election_reset_event;
     std::chrono::milliseconds election_timeout;
+    std::atomic<bool> running;
+    std::thread timer_thread;
 
     // outbound rpc callbacks
     std::function<RequestVoteResponse(int, const RequestVoteRequest&)>
@@ -35,6 +39,7 @@ class RaftNode {
     void send_heartbeats();
 
     void reset_election_timer();
+    void run_election_timer();
 
   public:
     // constructor
@@ -43,6 +48,9 @@ class RaftNode {
                  int, const RequestVoteRequest&)> const& send_request_vote,
              std::function<AppendEntriesResponse(
                  int, const AppendEntriesRequest&)> const& send_append_entries);
+
+    void start();
+    void stop();
 
     // incoming rpc handlers
     RequestVoteResponse handle_request_vote(const RequestVoteRequest& req);
