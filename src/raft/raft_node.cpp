@@ -1,7 +1,9 @@
 #include "raft/raft_node.hpp"
 #include "raft/raft_types.hpp"
+#include <atomic>
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <random>
 #include <thread>
@@ -29,7 +31,82 @@ void RaftNode::become_follower(int new_term) {
     reset_election_timer();
 }
 
-void RaftNode::start_election() {}
+void RaftNode::start_election() {
+    // set state to candidate, increment current term and vote for self
+    state = RaftState::CANDIDATE;
+    current_term++;
+    voted_for = id;
+    reset_election_timer();
+
+    // snapshot the attributes relevant to RequestVoteRequest as these can
+    // change at any time
+    int term = current_term;
+    int candidate_id = id;
+    int last_log_index = static_cast<int>(log.size());
+    int last_log_term = log.empty() ? 0 : log.back().term;
+
+    // create a pointer to a counter so votes from other nodes can be counted.
+    // initialize with 1 (candidate's own vote)
+    std::shared_ptr<std::atomic<int>> votes_received =
+        std::make_shared<std::atomic<int>>(1);
+
+    // calculate majority (min votes needed to become leader)
+    int majority = (static_cast<int>(peer_ids.size()) + 1) / 2 + 1;
+
+    for (int peer_id : peer_ids) {
+        // spawn a new thread for each peer node and send a vote request
+        std::thread([this, peer_id, term, candidate_id, last_log_index,
+                     last_log_term, votes_received, majority]() {
+            RequestVoteRequest req;
+            req.term = term;
+            req.candidate_id = candidate_id;
+            req.last_log_index = last_log_index;
+            req.last_log_term = last_log_term;
+
+            RequestVoteResponse resp = send_request_vote(peer_id, req);
+
+            std::lock_guard<std::mutex> lock(mtx);
+            if (resp.term > current_term) {
+                become_follower(resp.term);
+                return;
+            }
+
+            // ignore replies from an election that already ended or been
+            // replaced by a newer one
+            if (state != RaftState::CANDIDATE || current_term != term) {
+                return;
+            }
+            if (resp.vote_granted) {
+                // once a vote has been granted, increment votes received
+                (*votes_received)++;
+
+                if (state == RaftState::CANDIDATE &&
+                    *votes_received >= majority) {
+                    // once majority votes has been reached, this node becomes
+                    // leader and immediately sends heartbeats so other nodes
+                    // know this one is leader
+                    state = RaftState::LEADER;
+                    send_heartbeats();
+
+                    // spawn a thread to keep sending heartbeats every 50ms
+                    std::thread([this]() {
+                        while (running) {
+                            std::this_thread::sleep_for(
+                                std::chrono::milliseconds(50));
+
+                            std::lock_guard<std::mutex> lock(mtx);
+                            if (state != RaftState::LEADER) {
+                                break;
+                            }
+
+                            send_heartbeats();
+                        }
+                    }).detach();
+                }
+            }
+        }).detach();
+    }
+}
 
 void RaftNode::send_heartbeats() {
     // only leaders can send heartbeats
