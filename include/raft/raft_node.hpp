@@ -19,9 +19,12 @@ class RaftNode {
     int current_term; // latest term node has seen
     int voted_for;    // candidate id that received vote in current term
     std::vector<LogEntry> log;
+    int commit_index; // the highest log entry index known to be committed on a
+                      // majority
 
     RaftState state; // current role: FOLLOWER, CANDIDATE, or LEADER
 
+    // election timeout state and its background timer thread
     std::chrono::steady_clock::time_point election_reset_event;
     std::chrono::milliseconds election_timeout;
     std::atomic<bool> running;
@@ -38,6 +41,7 @@ class RaftNode {
     void start_election();
     void send_heartbeats();
 
+    // reset and monitor the election timeout
     void reset_election_timer();
     void run_election_timer();
 

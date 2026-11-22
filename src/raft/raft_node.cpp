@@ -1,8 +1,10 @@
 #include "raft/raft_node.hpp"
 #include "raft/raft_types.hpp"
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <random>
+#include <thread>
 #include <vector>
 
 namespace raft {
@@ -14,8 +16,9 @@ RaftNode::RaftNode(
     std::function<AppendEntriesResponse(
         int, const AppendEntriesRequest&)> const& send_append_entries)
     : id(id), peer_ids(peer_ids), current_term(0), voted_for(-1),
-      state(RaftState::FOLLOWER), send_request_vote(send_request_vote),
-      send_append_entries(send_append_entries), running(false) {
+      commit_index(0), state(RaftState::FOLLOWER), running(false),
+      send_request_vote(send_request_vote),
+      send_append_entries(send_append_entries) {
     reset_election_timer();
 }
 
@@ -28,7 +31,41 @@ void RaftNode::become_follower(int new_term) {
 
 void RaftNode::start_election() {}
 
-void RaftNode::send_heartbeats() {}
+void RaftNode::send_heartbeats() {
+    // only leaders can send heartbeats
+    if (state != RaftState::LEADER) {
+        return;
+    }
+
+    // snapshot the attributes relevant to AppendEntriesRequest as these can
+    // change at any time
+    int term = current_term;
+    int leader_id = id;
+    int prev_log_index = static_cast<int>(log.size());
+    int prev_log_term = log.empty() ? 0 : log.back().term;
+    int leader_commit = commit_index;
+
+    for (int peer_id : peer_ids) {
+        // spawn a new thread for each peer node and send a heartbeat entry
+        std::thread([this, peer_id, term, leader_id, prev_log_index,
+                     prev_log_term, leader_commit]() {
+            AppendEntriesRequest req;
+            req.term = term;
+            req.leader_id = leader_id;
+            req.prev_log_index = prev_log_index;
+            req.prev_log_term = prev_log_term;
+            req.entries = {}; // heartbeats have no entries
+            req.leader_commit = leader_commit;
+
+            AppendEntriesResponse resp = send_append_entries(peer_id, req);
+
+            std::lock_guard<std::mutex> lock(mtx);
+            if (resp.term > current_term) {
+                become_follower(resp.term);
+            }
+        }).detach();
+    }
+}
 
 void RaftNode::reset_election_timer() {
     thread_local std::mt19937 generator{std::random_device{}()};
@@ -43,6 +80,9 @@ void RaftNode::run_election_timer() {
     while (running) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         std::lock_guard<std::mutex> lock(mtx);
+
+        // start an election if this non-leader's election timeout has been
+        // exceeded
         if (state != RaftState::LEADER &&
             (std::chrono::steady_clock::now() - election_reset_event) >=
                 election_timeout) {
