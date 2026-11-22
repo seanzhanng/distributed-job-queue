@@ -60,6 +60,11 @@ class RaftNode {
     RequestVoteResponse handle_request_vote(const RequestVoteRequest& req);
     AppendEntriesResponse
     handle_append_entries(const AppendEntriesRequest& req);
+
+    // getters
+    RaftState get_state();
+    int get_term();
+    int get_id();
 };
 
 } // namespace raft

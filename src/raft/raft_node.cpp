@@ -267,4 +267,18 @@ RaftNode::handle_append_entries(const AppendEntriesRequest& req) {
     return resp;
 }
 
+RaftState RaftNode::get_state() {
+    std::lock_guard<std::mutex> lock(mtx);
+    return state;
+}
+
+int RaftNode::get_term() {
+    std::lock_guard<std::mutex> lock(mtx);
+    return current_term;
+}
+
+int RaftNode::get_id() {
+    return id;
+}
+
 } // namespace raft
